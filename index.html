@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>AI Yoga Coach - Tree Pose</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<h1>AI Yoga Coach</h1>
+<h2>Tree Pose (Beginner) — Left Leg</h2>
+
+<div class="container">
+
+<video id="webcam" autoplay playsinline></video>
+<canvas id="canvas" width="700" height="520"></canvas>
+
+<div id="overlay">Stand in frame</div>
+
+</div>
+
+<div id="progress"></div>
+<div id="score"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+
+<script src="script.js"></script>
+
+</body>
+</html>
