@@ -2,32 +2,66 @@
 <html>
 
 <head>
-<title>AI Yoga Coach - Tree Pose</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Yoga Coach - Tree Pose</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<h1>AI Yoga Coach</h1>
-<h2>Tree Pose (Beginner) — Left Leg</h2>
+  <h1>🧘 AI Yoga Coach</h1>
+  <h2>Tree Pose (Beginner) — Left Leg</h2>
 
-<div class="container">
+  <input type="file" id="upload" accept="video/*" placeholder="Upload a yoga video">
 
-<video id="webcam" autoplay playsinline></video>
-<canvas id="canvas" width="700" height="520"></canvas>
+  <div class="container">
+    <video id="webcam" muted></video>
+    <canvas id="canvas" width="700" height="520"></canvas>
+    <div id="overlay">Loading...</div>
+  </div>
 
-<div id="overlay">Stand in frame</div>
+  <div id="progress"></div>
+  <div id="score"></div>
 
-</div>
+  <!--
+    For reliability download the Mediapipe files and host them locally.
+    Example (run in PowerShell or CMD in the yoga folder):
+      mkdir libs
+      curl -L -o libs/drawing_utils.js https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js
+      curl -L -o libs/pose.js https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js
+      curl -L -o libs/pose_solution_packed_assets.data https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose_solution_packed_assets.data
+      curl -L -o libs/pose_solution_simd_wasm_bin.js https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose_solution_simd_wasm_bin.js
+      curl -L -o libs/pose_solution_simd_wasm_bin.wasm https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose_solution_simd_wasm_bin.wasm
+    (you may need additional wasm files depending on version)
+  -->
 
-<div id="progress"></div>
-<div id="score"></div>
+  <!--
+       Load MediaPipe from CDN. If the network is unavailable or the CDN is blocked
+       the library will not load and you'll see an error message. For offline
+       use you can download the files into a `libs` folder as shown below and the
+       fallback script will pick them up automatically.
+  -->
+  <script>
+    function loadScript(src, onerror) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function() { console.log('Loaded', src); };
+      s.onerror = onerror;
+      document.head.appendChild(s);
+    }
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js', function(){
+      console.warn('CDN drawing_utils failed, trying local copy');
+      loadScript('libs/drawing_utils.js');
+    });
+    loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js', function(){
+      console.warn('CDN pose.js failed, trying local copy');
+      loadScript('libs/pose.js');
+    });
+  </script>
 
-<script src="script.js"></script>
+  <script src="script.js"></script>
 
 </body>
 </html>
