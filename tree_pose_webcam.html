@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tree Pose Coach</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap');
+    :root {
+      --bg: #0a0f0d; --surface: #111a15; --green: #39ff8a;
+      --green-dim: #1a5c3a; --red: #ff4f4f; --text: #d4edd9; --muted: #5a7060;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 24px 16px;
+    }
+    h1 {
+      font-family: 'Bebas Neue', sans-serif; font-size: 3rem;
+      letter-spacing: 0.12em; color: var(--green);
+      text-shadow: 0 0 30px rgba(57,255,138,0.35); margin-bottom: 4px;
+    }
+    .subtitle {
+      color: var(--muted); font-size: 0.85rem;
+      letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 20px;
+    }
+    .arena {
+      position: relative; width: 700px; max-width: 100%;
+      border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--green-dim);
+      box-shadow: 0 0 60px rgba(57,255,138,0.08);
+    }
+    video#webcam { display: none; }
+    canvas#canvas { display: block; width: 100%; height: auto; transform: scaleX(-1); }
+    #overlay {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(10,15,13,0.92));
+      padding: 32px 24px 20px; font-size: 1.3rem; font-weight: 500;
+      color: var(--green); text-shadow: 0 0 12px rgba(57,255,138,0.5);
+      min-height: 70px; display: flex; align-items: flex-end;
+    }
+    .hud {
+      display: flex; justify-content: space-between;
+      width: 700px; max-width: 100%; margin-top: 14px; gap: 12px;
+    }
+    .hud-card {
+      flex: 1; background: var(--surface);
+      border: 1px solid var(--green-dim); border-radius: 10px; padding: 12px 18px;
+    }
+    .hud-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
+    .hud-value { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; color: var(--green); letter-spacing: 0.05em; }
+    #cam-btn {
+      margin-top: 18px; background: var(--green); color: #0a0f0d;
+      border: none; border-radius: 8px; font-family: 'DM Sans', sans-serif;
+      font-weight: 500; font-size: 1rem; padding: 12px 32px;
+      cursor: pointer; letter-spacing: 0.04em; transition: opacity 0.2s;
+    }
+    #cam-btn:hover { opacity: 0.85; }
+    #cam-btn:disabled { opacity: 0.4; cursor: default; }
+  </style>
+</head>
+<body>
+  <h1>Tree Pose Coach</h1>
+  <p class="subtitle">Real-time yoga guidance via webcam</p>
+  <div class="arena">
+    <video id="webcam" playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div id="overlay">Click Start Webcam to begin</div>
+  </div>
+  <div class="hud">
+    <div class="hud-card"><div class="hud-label">Level</div><div class="hud-value" id="progress">1 / 3</div></div>
+    <div class="hud-card"><div class="hud-label">Status</div><div class="hud-value" id="score">–</div></div>
+  </div>
+  <button id="cam-btn">Start Webcam</button>
+
+  <script>
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error("Global error:", message, "at", source + ":["+lineno+":"+colno+"]", error);
+      document.getElementById("overlay").innerText = message || "Error occurred";
+    };
+
+    document.getElementById("cam-btn").addEventListener("click", () => {
+      document.getElementById("cam-btn").disabled = true;
+      document.getElementById("cam-btn").innerText = "Camera Active";
+      initializeApp();
+    });
+
+    async function initializeApp() {
+      const video  = document.getElementById("webcam");
+      const canvas = document.getElementById("canvas");
+      const ctx    = canvas.getContext("2d");
+      canvas.width = 700; canvas.height = 520;
+
+      const overlay   = document.getElementById("overlay");
+      const progress  = document.getElementById("progress");
+      const scoreText = document.getElementById("score");
+
+      const HOLD_TIME = 3000;
+      let level = 1, state = "setup", holdStart = 0;
+
+      const LM = {
+        NOSE:0, L_SHOULDER:11, R_SHOULDER:12,
+        L_WRIST:15, R_WRIST:16, L_HIP:23, R_HIP:24,
+        L_KNEE:25, R_KNEE:26, L_ANKLE:27, R_ANKLE:28
+      };
+
+      function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+      function angle(A,B,C){
+        let r = Math.atan2(C.y-B.y,C.x-B.x) - Math.atan2(A.y-B.y,A.x-B.x);
+        let a = Math.abs(r*180/Math.PI);
+        return a>180?360-a:a;
+      }
+      function speak(t){ try{ speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }catch(e){} }
+
+      function checkTreePose(lm){
+        if(!lm||lm.length<29) return {};
+        return {
+          leftFootGrounded: lm[LM.L_ANKLE].y > 0.75,
+          footNearAnkle:    dist(lm[LM.L_ANKLE], lm[LM.R_ANKLE]) < 0.07,
+          footOnCalf:       dist(lm[LM.R_ANKLE], lm[LM.L_KNEE]) < 0.15,
+          footOnThigh:      dist(lm[LM.R_ANKLE], lm[LM.L_HIP]) < 0.2,
+          kneeOut:          angle(lm[LM.R_HIP], lm[LM.R_KNEE], lm[LM.R_ANKLE]) > 40,
+          handsOnHips:      dist(lm[LM.L_WRIST], lm[LM.L_HIP]) < 0.15 && dist(lm[LM.R_WRIST], lm[LM.R_HIP]) < 0.15,
+          armsUp:           lm[LM.L_WRIST].y < lm[LM.L_SHOULDER].y && lm[LM.R_WRIST].y < lm[LM.R_SHOULDER].y,
+          spineStraight:    Math.abs(lm[LM.NOSE].x - lm[LM.L_HIP].x) < 0.15,
+          hipsForward:      Math.abs(lm[LM.L_HIP].x - lm[LM.R_HIP].x) > 0.15,
+          shouldersRelaxed: lm[LM.L_SHOULDER].y > lm[LM.NOSE].y && lm[LM.R_SHOULDER].y > lm[LM.NOSE].y
+        };
+      }
+
+      function coach(lm){
+        const r = checkTreePose(lm);
+        progress.innerText = level + " / 3";
+        if(!r.spineStraight)    { overlay.innerText = "Stand taller"; return; }
+        if(!r.hipsForward)      { overlay.innerText = "Face hips forward"; return; }
+        if(!r.shouldersRelaxed) { overlay.innerText = "Relax your shoulders"; return; }
+
+        if(state==="setup"){
+          if(r.leftFootGrounded){ state="foot"; speak("Good. Lift your right foot."); }
+          overlay.innerText = "Shift weight to LEFT foot";
+        } else if(state==="foot"){
+          if(level===1&&r.footNearAnkle)  { state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on ankle"; }
+          else if(level===2&&r.footOnCalf){ state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on calf"; }
+          else if(level===3&&r.footOnThigh){ state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on thigh"; }
+        } else if(state==="knee"){
+          if(r.kneeOut){
+            state = level===3?"arms":"hands";
+            speak(level===3?"Raise your arms above your head.":"Place your hands on your hips.");
+            overlay.innerText = "Rotate knee outward";
+          }
+        } else if(state==="hands"){
+          if(r.handsOnHips){ state="hold"; holdStart=Date.now(); speak("Perfect. Hold the pose."); overlay.innerText="Hands on hips"; }
+        } else if(state==="arms"){
+          if(r.armsUp){ state="hold"; holdStart=Date.now(); speak("Perfect. Hold the pose."); overlay.innerText="Raise arms up"; }
+        } else if(state==="hold"){
+          let elapsed = Date.now()-holdStart;
+          let remain = Math.ceil((HOLD_TIME-elapsed)/1000);
+          overlay.innerText = "Hold… "+remain;
+          if(elapsed>HOLD_TIME){
+            if(level<3){ level++; state="setup"; speak("Great. Moving to the next level."); }
+            else { state="done"; scoreText.innerText="Complete!"; speak("Excellent tree pose. Session complete."); }
+          }
+        }
+      }
+
+      function drawPose(landmarks){
+        if(!landmarks||landmarks.length===0) return;
+        const connections=[[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+        ctx.save();
+        ctx.translate(canvas.width, 0); ctx.scale(-1,1);
+        ctx.strokeStyle="#39ff8a"; ctx.lineWidth=3;
+        connections.forEach(([s,e])=>{
+          if(landmarks[s]&&landmarks[e]){
+            ctx.beginPath();
+            ctx.moveTo(landmarks[s].x*canvas.width, landmarks[s].y*canvas.height);
+            ctx.lineTo(landmarks[e].x*canvas.width, landmarks[e].y*canvas.height);
+            ctx.stroke();
+          }
+        });
+        ctx.fillStyle="#ff4f4f";
+        landmarks.forEach(lm=>{
+          if(lm&&lm.x&&lm.y){
+            ctx.beginPath();
+            ctx.arc(lm.x*canvas.width, lm.y*canvas.height, 5, 0, 2*Math.PI);
+            ctx.fill();
+          }
+        });
+        ctx.restore();
+      }
+
+      function onResults(results){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(results.image) ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+        if(results.poseLandmarks&&results.poseLandmarks.length>0){
+          drawPose(results.poseLandmarks);
+          coach(results.poseLandmarks);
+        } else {
+          overlay.innerText = "No pose detected – step back & ensure good lighting";
+        }
+      }
+
+      if(typeof Pose==='undefined'){
+        overlay.innerText = "MediaPipe Pose library failed to load";
+        return;
+      }
+
+      const pose = new Pose({ locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+      pose.setOptions({ modelComplexity:1, smoothLandmarks:true, minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
+      pose.onResults(onResults);
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video:{ width:700, height:520, facingMode:"user" } });
+      } catch(err){
+        overlay.innerText = "Webcam access denied – please allow camera permission";
+        document.getElementById("cam-btn").disabled = false;
+        document.getElementById("cam-btn").innerText = "Start Webcam";
+        return;
+      }
+
+      video.srcObject = stream;
+      await video.play();
+      overlay.innerText = "Detecting pose…";
+
+      if(typeof Camera!=='undefined'){
+        const camera = new Camera(video, {
+          onFrame: async()=>{ await pose.send({image:video}); },
+          width:700, height:520
+        });
+        camera.start();
+      } else {
+        async function loop(){
+          if(!video.paused&&!video.ended){ try{ await pose.send({image:video}); }catch(e){} }
+          requestAnimationFrame(loop);
+        }
+        loop();
+      }
+    }
+  </script>
+</body>
+</html>
