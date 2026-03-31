@@ -24,10 +24,7 @@
       letter-spacing: 0.12em; color: var(--green);
       text-shadow: 0 0 30px rgba(57,255,138,0.35); margin-bottom: 4px;
     }
-    .subtitle {
-      color: var(--muted); font-size: 0.85rem;
-      letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 20px;
-    }
+    .subtitle { color: var(--muted); font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 20px; }
     .arena {
       position: relative; width: 700px; max-width: 100%;
       border-radius: 16px; overflow: hidden;
@@ -35,7 +32,7 @@
       box-shadow: 0 0 60px rgba(57,255,138,0.08);
     }
     video#webcam { display: none; }
-    canvas#canvas { display: block; width: 100%; height: auto; transform: scaleX(-1); }
+    canvas#canvas { display: block; width: 100%; height: auto; } /* NO CSS mirror */
     #overlay {
       position: absolute; bottom: 0; left: 0; right: 0;
       background: linear-gradient(transparent, rgba(10,15,13,0.92));
@@ -43,14 +40,8 @@
       color: var(--green); text-shadow: 0 0 12px rgba(57,255,138,0.5);
       min-height: 70px; display: flex; align-items: flex-end;
     }
-    .hud {
-      display: flex; justify-content: space-between;
-      width: 700px; max-width: 100%; margin-top: 14px; gap: 12px;
-    }
-    .hud-card {
-      flex: 1; background: var(--surface);
-      border: 1px solid var(--green-dim); border-radius: 10px; padding: 12px 18px;
-    }
+    .hud { display: flex; justify-content: space-between; width: 700px; max-width: 100%; margin-top: 14px; gap: 12px; }
+    .hud-card { flex: 1; background: var(--surface); border: 1px solid var(--green-dim); border-radius: 10px; padding: 12px 18px; }
     .hud-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
     .hud-value { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; color: var(--green); letter-spacing: 0.05em; }
     #cam-btn {
@@ -79,7 +70,6 @@
 
   <script>
     window.onerror = function(message, source, lineno, colno, error) {
-      console.error("Global error:", message, "at", source + ":["+lineno+":"+colno+"]", error);
       document.getElementById("overlay").innerText = message || "Error occurred";
     };
 
@@ -102,6 +92,7 @@
       const HOLD_TIME = 3000;
       let level = 1, state = "setup", holdStart = 0;
 
+      // Original MediaPipe indices — correct, no swapping
       const LM = {
         NOSE:0, L_SHOULDER:11, R_SHOULDER:12,
         L_WRIST:15, R_WRIST:16, L_HIP:23, R_HIP:24,
@@ -143,8 +134,8 @@
           if(r.leftFootGrounded){ state="foot"; speak("Good. Lift your right foot."); }
           overlay.innerText = "Shift weight to LEFT foot";
         } else if(state==="foot"){
-          if(level===1&&r.footNearAnkle)  { state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on ankle"; }
-          else if(level===2&&r.footOnCalf){ state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on calf"; }
+          if(level===1&&r.footNearAnkle)   { state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on ankle"; }
+          else if(level===2&&r.footOnCalf) { state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on calf"; }
           else if(level===3&&r.footOnThigh){ state="knee"; speak("Rotate your knee outward."); overlay.innerText="Place foot on thigh"; }
         } else if(state==="knee"){
           if(r.kneeOut){
@@ -167,34 +158,42 @@
         }
       }
 
+      // KEY FIX: draw skeleton using (1 - lm.x) to mirror x on canvas
+      // This matches the mirrored video draw below — no CSS transform needed
+      function mirrorX(x){ return (1 - x) * canvas.width; }
+
       function drawPose(landmarks){
         if(!landmarks||landmarks.length===0) return;
         const connections=[[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
-        ctx.save();
-        ctx.translate(canvas.width, 0); ctx.scale(-1,1);
         ctx.strokeStyle="#39ff8a"; ctx.lineWidth=3;
         connections.forEach(([s,e])=>{
           if(landmarks[s]&&landmarks[e]){
             ctx.beginPath();
-            ctx.moveTo(landmarks[s].x*canvas.width, landmarks[s].y*canvas.height);
-            ctx.lineTo(landmarks[e].x*canvas.width, landmarks[e].y*canvas.height);
+            ctx.moveTo(mirrorX(landmarks[s].x), landmarks[s].y*canvas.height);
+            ctx.lineTo(mirrorX(landmarks[e].x), landmarks[e].y*canvas.height);
             ctx.stroke();
           }
         });
         ctx.fillStyle="#ff4f4f";
         landmarks.forEach(lm=>{
-          if(lm&&lm.x&&lm.y){
+          if(lm&&lm.x!==undefined&&lm.y!==undefined){
             ctx.beginPath();
-            ctx.arc(lm.x*canvas.width, lm.y*canvas.height, 5, 0, 2*Math.PI);
+            ctx.arc(mirrorX(lm.x), lm.y*canvas.height, 5, 0, 2*Math.PI);
             ctx.fill();
           }
         });
-        ctx.restore();
       }
 
       function onResults(results){
         ctx.clearRect(0,0,canvas.width,canvas.height);
-        if(results.image) ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+        if(results.image){
+          // Draw video mirrored via canvas transform (not CSS)
+          ctx.save();
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
+        }
         if(results.poseLandmarks&&results.poseLandmarks.length>0){
           drawPose(results.poseLandmarks);
           coach(results.poseLandmarks);
